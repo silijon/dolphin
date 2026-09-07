@@ -1,0 +1,4 @@
+# This root is a workspace, not a third runtime package.
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["relay/tests", "client/tests"]

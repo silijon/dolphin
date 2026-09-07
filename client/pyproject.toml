@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "walkie-client"
+version = "0.1.0"
+description = "Wi-Fi walkie-talkie POC client"
+requires-python = ">=3.11"
+dependencies = ["websockets>=15,<18", "sounddevice>=0.5,<0.6"]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[project.scripts]
+walkie-client = "walkie_client.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
