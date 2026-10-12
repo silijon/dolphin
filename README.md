@@ -1,9 +1,10 @@
 # Wi-Fi walkie-talkie POC
 
-Two Python laptop clients exchange half-duplex speech through a separate Python
-relay. SPACE toggles push-to-talk; Q quits. There is no ESP32 code. The remaining
-proof is a real listening test on Linux and macOS; automated tests do not measure
-microphone-to-speaker latency or verify your hardware.
+Python laptop clients and a native ESP32 Arduino client exchange half-duplex
+speech through a separate Python relay. Laptop SPACE toggles push-to-talk; Q
+quits. The [ESP32 client](esp32/README.md) targets the Adafruit ESP32-S3 Reverse
+TFT Feather with an I2S microphone, amplifier, and hold-to-talk button. Automated
+tests do not measure microphone-to-speaker latency or verify physical hardware.
 
 ## Architecture
 
@@ -26,7 +27,7 @@ PCM16LE, 320 samples per callback. It discards microphone data until the relay
 grants the floor and outputs silence when not receiving. Each 20 ms frame is
 one 640-byte WebSocket binary message. Controls are small JSON text messages.
 Compression is disabled. [PROTOCOL.md](PROTOCOL.md) specifies the complete wire
-contract for a future embedded implementation.
+contract shared by the laptop and ESP32 implementations.
 
 The relay owns all floor/routing state on one asyncio thread. Reciprocal IDs
 form a pair; each pair can have one transmitter. Per-connection bounded writers
@@ -53,6 +54,7 @@ client/                 # independently installable; websockets + sounddevice
   src/walkie_client/     # __main__, client, audio, ptt, protocol, jitter
   tests/
 PROTOCOL.md
+esp32/                  # native Arduino client, inspection, setup, host tests
 ```
 
 Neither package imports the other. The root is only documentation/test

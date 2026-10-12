@@ -10,3 +10,6 @@ wheels/
 .venv
 .venv-*/
 .pytest_cache/
+
+# ESP32 local Wi-Fi credentials
+esp32/walkie_esp32/config.local.h
