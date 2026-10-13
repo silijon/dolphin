@@ -1,16 +1,34 @@
 #pragma once
 
-// Copy config.local.example.h to config.local.h to keep credentials out of git.
+// Optional provisioning form defaults and microphone settings. Network settings
+// saved through http://walkie.setup override these; no credentials are required
+// at compile time. Copy config.local.example.h to config.local.h for local defaults.
 #if __has_include("config.local.h")
 #include "config.local.h"
-#else
+#endif
+#ifndef WALKIE_WIFI_SSID
 #define WALKIE_WIFI_SSID "YOUR_WIFI_SSID"
+#endif
+#ifndef WALKIE_WIFI_PASSWORD
 #define WALKIE_WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#endif
+#ifndef WALKIE_RELAY_HOST
 #define WALKIE_RELAY_HOST "192.168.1.100"
+#endif
+#ifndef WALKIE_RELAY_PORT
 #define WALKIE_RELAY_PORT 8765
+#endif
+#ifndef WALKIE_RELAY_PATH
 #define WALKIE_RELAY_PATH "/"
+#endif
+#ifndef WALKIE_DEVICE_ID
 #define WALKIE_DEVICE_ID "esp32-a"
+#endif
+#ifndef WALKIE_PEER_ID
 #define WALKIE_PEER_ID "laptop-b"
+#endif
+#ifndef WALKIE_SETUP_PASSWORD
+#define WALKIE_SETUP_PASSWORD "dolphin1"
 #endif
 
 #define MIC_BCLK  5

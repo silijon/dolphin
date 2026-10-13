@@ -11,3 +11,5 @@
 #define WALKIE_MIC_SLOT 0
 #define WALKIE_MIC_SHIFT 16
 #define WALKIE_MIC_GAIN 1
+// Setup AP password defaults to "dolphin1". Optional override (8-63 characters).
+// #define WALKIE_SETUP_PASSWORD "your-setup-password"

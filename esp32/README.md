@@ -11,11 +11,11 @@ existing Python relay and laptop client are unchanged. Read the
    with **3.3.12**), and select **Adafruit Feather ESP32-S3 Reverse TFT**.
 2. Install **WebSockets by Markus Sattler**, version **2.7.2**, from Library
    Manager. This is the only additional library. WiFi, FreeRTOS, the standard
-   I2S driver, and cJSON come with the ESP32 core.
+   I2S driver, cJSON, WebServer, DNSServer, and Preferences come with the ESP32 core.
 3. Open [walkie_esp32/walkie_esp32.ino](walkie_esp32/walkie_esp32.ino).
-4. Copy `config.local.example.h` to `config.local.h` in the sketch folder and
-   set SSID/password, relay LAN IP/hostname, port, path, and reciprocal IDs.
-   This file is ignored by git. Defaults in `config.h` are placeholders.
+4. Network configuration is now entered through the setup page after uploading.
+   `config.local.h` is optional: existing values prefill the setup form, while
+   saved settings take precedence. Keep it for your microphone slot/gain settings.
 5. Set **USB Mode → Hardware CDC and JTAG**, **USB CDC On Boot → Enabled**, and
    **Upload Mode → UART0 / Hardware CDC**. Select the board's port, compile, and
    upload. Open Serial Monitor at **115200 baud**. Firmware waits at most three
@@ -28,10 +28,60 @@ Wi-Fi, and task checkpoints. A fatal startup error repeats every two seconds
 so it remains visible if the monitor attaches late. The TFT is not initialized,
 and the external LED remains off until a peer connects and a PTT grant arrives.
 
-Use a reachable host/IP, **without** `ws://`, in `WALKIE_RELAY_HOST`. This first
-build uses plain `ws://` on the LAN, matching the supplied relay. It doesn't
-configure WSS, automatic discovery, or a TFT interface. Credentials and IDs are
-compile-time settings. The board needs a 2.4 GHz network reachable from the relay.
+## Configure from a phone or laptop
+
+1. Upload the firmware and open Serial Monitor at **115200 baud**. On the first
+   boot without saved settings, it opens **Walkie-Setup-XXXXXX** automatically.
+   The first boot after upgrading also opens setup: previous `config.local.h`
+   values are form defaults, not automatically saved credentials.
+2. The **setup Wi-Fi password is `dolphin1`**. Optionally define
+   `WALKIE_SETUP_PASSWORD` (8–63 characters) in `config.local.h` to override it.
+   This is separate from the operational Wi-Fi password. Previously generated
+   setup passwords are ignored after upgrading; no flash erase is needed.
+3. Connect the phone/laptop to that setup network. Stay connected if it says
+   **No internet**. A captive setup page may open automatically; otherwise open
+   **http://walkie.setup**. **http://192.168.4.1** is the fallback. Use HTTP,
+   not HTTPS; private DNS/VPN settings can prevent the hostname from resolving.
+4. Enter the Wi-Fi SSID, password, and full relay address, for example
+   **ws://192.168.1.42:8765/**. Use the relay laptop's LAN address, not localhost.
+   Leave the password blank to retain the existing one for the same SSID;
+   explicitly check **This network has no password** for an open network.
+   Under **Advanced**, set distinct reciprocal device/peer IDs if needed.
+5. Click **Test connection**. The page refreshes while the walkie joins Wi-Fi
+   and tests version-1 relay registration. This usually finishes within about
+   30 seconds, though library socket timeouts aren't a strict total deadline.
+6. On success, click **Save and start**. Wi-Fi failure leaves the setup page
+   available and saves nothing. If Wi-Fi works but the relay is unavailable or
+   rejects registration, the page reports that separately; you can correct it
+   or choose **Save and start** anyway if the relay is intentionally offline.
+7. The setup network closes and audio/network tasks start. Release PTT, then
+   test normal operation. Later boots use saved settings without opening an AP.
+
+To change settings later, hold the **external PTT button on GPIO13** before
+powering on or pressing RESET, and keep it held for **five seconds** after reset.
+Release it once setup opens. This is separate from the board's BOOT/0 button.
+Hold gestures during ordinary speech never open setup.
+
+During a connection test the ESP32 briefly runs **AP+STA**. Both share a radio
+channel, so a phone may temporarily disconnect when the station joins its
+network; reconnect to Walkie-Setup and reopen the page. Use an operational
+network outside `192.168.4.0/24` to avoid overlapping the setup subnet during
+tests. Setup HTTP listens only on `192.168.4.1`; the setup AP, DNS, and HTTP
+servers are stopped before walkie operation. There is no audio transmission or
+speaker playback during provisioning. The external LED stays off.
+
+Network settings are stored as one versioned Preferences/NVS blob. Tests don't
+write it; only an explicit save replaces it, preserving the previous saved
+configuration on a failed test or power interruption before save. Re-uploading
+normally preserves settings; **Erase All Flash Before Sketch Upload** removes
+them; the fixed setup password remains `dolphin1`. Saved credentials are never prefilled
+into HTML, returned by the web page, or printed in operational logs. Setup AP
+credentials are printed during setup for labeling. Browser changes use POST
+with a per-test token; user-controlled values are HTML-escaped.
+
+This build uses plain `ws://`, matching the supplied relay. It doesn't configure
+WSS, enterprise Wi-Fi, IPv6 relay literals, discovery, or a TFT interface. The
+operational network must be 2.4 GHz and reachable from the relay.
 
 The microphone/amp part numbers and microphone L/R strap were not supplied.
 Defaults assume a standard Philips I2S MEMS microphone with signed, MSB-aligned
@@ -77,7 +127,9 @@ samples are duplicated to both amplifier slots. The relay's half-duplex floor
 is preserved, and playback is also suppressed locally while PTT is held.
 
 `audio_core.h` isolates PCM conversion, floor transitions, and bounded rings;
-`firmware.cpp` contains Arduino/FreeRTOS/I2S/WebSocket adapters.
+`firmware.cpp` contains Arduino/FreeRTOS/I2S/WebSocket adapters. `provisioning.cpp`
+owns the setup-only AP, web page, DNS, storage, and test task; `settings.h`
+isolates bounded configuration and relay URL validation for host tests.
 
 | Buffer / frame | Size / policy |
 | --- | --- |
@@ -131,7 +183,7 @@ Start the existing relay and laptop client using their normal environments:
   --server ws://127.0.0.1:8765 --device laptop-b --peer esp32-a
 ```
 
-Flash the board with `device=esp32-a`, `peer=laptop-b`, and the relay's LAN IP.
+Use the setup page to select `device=esp32-a`, `peer=laptop-b`, and the relay's LAN IP.
 Check Serial Monitor for `hello_ok` and `PEER ONLINE`.
 
 1. Hold Feather PTT, check `floor_granted` and external LED ON, speak, and
@@ -159,7 +211,19 @@ signed little-endian values, stereo duplication, and saturation:
 g++ -std=c++17 -Wall -Wextra -Werror \
   esp32/tests/audio_core_test.cpp -o /tmp/dolphin-audio-test
 /tmp/dolphin-audio-test
+g++ -std=c++17 -Wall -Wextra -Werror \
+  esp32/tests/settings_test.cpp -o /tmp/dolphin-settings-test
+/tmp/dolphin-settings-test
 ```
+
+Settings tests cover valid relay URLs and default ports, malformed/oversized
+URLs, port bounds, unsupported TLS/IPv6 forms, header-injection attempts,
+open-network and raw-PSK validation, invalid pairing IDs, and corrupt stored blobs.
+
+On hardware, additionally verify first-boot setup and hostname/fallback access,
+bad Wi-Fi credentials not saving, relay-offline save, password retention, restart
+persistence, re-entry with the five-second PTT gesture, and the setup AP disappearing
+after Save. Confirm the original bidirectional audio test still works afterward.
 
 Add `-fsanitize=address,undefined` if the host has the sanitizer runtimes installed.
 

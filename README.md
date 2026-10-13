@@ -29,6 +29,10 @@ one 640-byte WebSocket binary message. Controls are small JSON text messages.
 Compression is disabled. [PROTOCOL.md](PROTOCOL.md) specifies the complete wire
 contract shared by the laptop and ESP32 implementations.
 
+The ESP32 has a setup Wi-Fi network and a browser configuration page at
+`http://walkie.setup` for Wi-Fi credentials, relay address, and pairing IDs.
+Settings persist across restarts; see the [ESP32 setup guide](esp32/README.md).
+
 The relay owns all floor/routing state on one asyncio thread. Reciprocal IDs
 form a pair; each pair can have one transmitter. Per-connection bounded writers
 keep slow consumers out of floor arbitration. The client uses one network

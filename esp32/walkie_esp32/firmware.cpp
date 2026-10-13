@@ -8,6 +8,7 @@
 #include "config.h"
 #include "audio_core.h"
 #include "firmware.h"
+#include "provisioning.h"
 
 #if !CONFIG_IDF_TARGET_ESP32S3 || ESP_ARDUINO_VERSION_MAJOR < 3
 #error "Select the ESP32-S3 Reverse TFT Feather with ESP32 Arduino core 3.x"
@@ -19,6 +20,7 @@ static_assert(WALKIE_MIC_GAIN > 0 && WALKIE_MIC_GAIN <= 64, "MIC_GAIN must be 1.
 namespace {
 using namespace walkie;
 AudioState audio;
+Settings settings;  // Loaded once before tasks start; immutable during operation.
 portMUX_TYPE audioMux = portMUX_INITIALIZER_UNLOCKED;
 i2s_chan_handle_t micChannel = nullptr, ampChannel = nullptr;
 WebSocketsClient socketClient;  // Used exclusively by networkTask, including callbacks.
@@ -45,17 +47,6 @@ void check(esp_err_t result, const char *operation) {
     halt(reason);
   }
 }
-bool validId(const char *id) {
-  size_t length = strlen(id);
-  if (!length || length > 64) return false;
-  for (size_t i = 0; i < length; ++i) {
-    char c = id[i];
-    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-          (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.')) return false;
-  }
-  return true;
-}
-
 void resetSession() {
   registered = transportConnected = false;
   fragmented = MessageKind::None;
@@ -184,7 +175,7 @@ void websocketEvent(WStype_t type, uint8_t *payload, size_t length) {
       char hello[240];
       snprintf(hello, sizeof(hello),
                "{\"type\":\"hello\",\"protocol\":1,\"device_id\":\"%s\",\"peer_id\":\"%s\"}",
-               WALKIE_DEVICE_ID, WALKIE_PEER_ID);
+               settings.device, settings.peer);
       sendText(hello);
       break;
     }
@@ -303,7 +294,7 @@ void speakerTask(void *) {
 }
 void networkTask(void *) {
   // Empty subprotocol: Python websockets doesn't select the library's default "arduino".
-  socketClient.begin(WALKIE_RELAY_HOST, WALKIE_RELAY_PORT, WALKIE_RELAY_PATH, "");
+  socketClient.begin(settings.host, settings.port, settings.path, "");
   socketClient.onEvent(websocketEvent);
   socketClient.setReconnectInterval(1000);
   socketClient.enableHeartbeat(20000, 20000, 1);
@@ -377,31 +368,42 @@ void walkieSetup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);  // GPIO13 is also LED_BUILTIN: never drive it.
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
+  uint32_t bootAt = millis();
+  bool setupHeld = digitalRead(BUTTON_PIN) == LOW;
   Serial.begin(115200);
   // Give native USB a bounded opportunity to enumerate and attach a monitor.
   // A battery-powered board still boots when no serial host is attached.
   uint32_t serialStarted = millis();
-  while (!Serial && uint32_t(millis() - serialStarted) < 3000) delay(10);
+  while (!Serial && uint32_t(millis() - serialStarted) < 3000) {
+    if (digitalRead(BUTTON_PIN) != LOW) setupHeld = false;
+    delay(10);
+  }
   Serial.printf("\nBOOT walkie v1; reset=%d USB_MODE=%d CDC_ON_BOOT=%d\n",
                 int(esp_reset_reason()), ARDUINO_USB_MODE, ARDUINO_USB_CDC_ON_BOOT);
-  if (!validId(WALKIE_DEVICE_ID) || !validId(WALKIE_PEER_ID) ||
-      !strcmp(WALKIE_DEVICE_ID, WALKIE_PEER_ID)) halt("invalid or identical device/peer IDs");
-  if (!strcmp(WALKIE_WIFI_SSID, "YOUR_WIFI_SSID")) halt("configure Wi-Fi in config.local.h");
+  if (setupHeld) Serial.println("PTT held at boot; keep holding for five seconds to enter setup");
+  while (setupHeld && uint32_t(millis() - bootAt) < 5000) {
+    if (digitalRead(BUTTON_PIN) != LOW) setupHeld = false;
+    delay(10);
+  }
+  if (digitalRead(BUTTON_PIN) != LOW) setupHeld = false;
+  if (!configureWalkie(settings, setupHeld)) halt("could not initialize setup network or settings storage");
+  if (const char *error = validateSettings(settings)) halt(error);
   Serial.println("Initializing microphone I2S0 and amplifier I2S1...");
   initializeI2S();
   Serial.println("I2S ready; starting Wi-Fi...");
   WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
-  WiFi.begin(WALKIE_WIFI_SSID, WALKIE_WIFI_PASSWORD);
+  WiFi.begin(settings.ssid, settings.password);
   Serial.println("Starting audio and network tasks...");
   if (xTaskCreatePinnedToCore(microphoneTask, "microphone", 6144, nullptr, 3, nullptr, 1) != pdPASS ||
       xTaskCreatePinnedToCore(speakerTask, "speaker", 6144, nullptr, 3, nullptr, 1) != pdPASS ||
       xTaskCreatePinnedToCore(networkTask, "network", 12288, nullptr, 2, nullptr, 0) != pdPASS)
     halt("could not create tasks");
   Serial.printf("Walkie v1: %s -> %s, ws://%s:%u%s, PCM16LE 16000Hz, 640B/20ms\n",
-                WALKIE_DEVICE_ID, WALKIE_PEER_ID, WALKIE_RELAY_HOST,
-                unsigned(WALKIE_RELAY_PORT), WALKIE_RELAY_PATH);
+                settings.device, settings.peer, settings.host,
+                unsigned(settings.port), settings.path);
 }
 
 void walkieButtonLoop() {
